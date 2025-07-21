@@ -186,13 +186,19 @@ async function handleCompletions (req, apiKey) {
   body = response.body;
   if (response.ok) {
     let id = "chatcmpl-" + generateId(); //"chatcmpl-8pMMaqXMK68B3nyDBrapTDrhkHBQK";
-    const shared = {};
+    const shared = {
+      is_buffers_rest: false, // Track if there's an incomplete buffer at the end of stream
+    };
     if (req.stream) {
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
-          transform: parseStream,
-          flush: parseStreamFlush,
+          transform: function (chunk, controller) {
+            parseStream.call(this, chunk, controller);
+          },
+          flush: function (controller) {
+            parseStreamFlush.call(this, controller);
+          },
           buffer: "",
           shared,
         }))
@@ -207,15 +213,22 @@ async function handleCompletions (req, apiKey) {
     } else {
       body = await response.text();
       try {
-        body = JSON.parse(body);
-        if (!body.candidates) {
+        const parsedBody = JSON.parse(body);
+        if (!parsedBody.candidates) {
           throw new Error("Invalid completion object");
         }
+        body = processCompletionsResponse(parsedBody, model, id);
       } catch (err) {
         console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response)); // output as is
+        // Instead of returning raw body, return a structured error response
+        return new Response(JSON.stringify({
+            error: {
+                message: `Error parsing upstream response: ${err.message}`,
+                type: "parsing_error",
+                code: "invalid_json_response"
+            }
+        }), fixCors({ status: 500, headers: { "Content-Type": "application/json" } }));
       }
-      body = processCompletionsResponse(body, model, id);
     }
   }
   return new Response(body, fixCors(response));
@@ -501,7 +514,7 @@ const transformRequest = async (req) => ({
 });
 
 const generateId = () => {
-  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234456789";
   const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
   return Array.from({ length: 29 }, randomChar).join("");
 };
@@ -599,8 +612,9 @@ function parseStream (chunk, controller) {
 function parseStreamFlush (controller) {
   if (this.buffer) {
     console.error("Invalid data:", this.buffer);
-    controller.enqueue(this.buffer);
-    this.shared.is_buffers_rest = true;
+    // If stream ends with incomplete data, signal DONE to client
+    controller.enqueue("data: [DONE]" + delimiter);
+    this.shared.is_buffers_rest = true; // Still mark as incomplete buffer processed
   }
 }
 
@@ -617,9 +631,18 @@ function toOpenAiStream (line, controller) {
       throw new Error("Invalid completion chunk object");
     }
   } catch (err) {
-    console.error("Error parsing response:", err);
-    if (!this.shared.is_buffers_rest) { line =+ delimiter; }
-    controller.enqueue(line); // output as is
+    console.error("Error processing stream chunk:", err);
+    // Send an error chunk to provide context, then a DONE message.
+    controller.enqueue(sseline({
+        id: this.id,
+        object: "chat.completion.chunk",
+        choices: [{
+            index: 0,
+            delta: { content: `[ERROR] Stream processing error: ${err.message}` },
+            finish_reason: "error"
+        }]
+    }));
+    controller.enqueue("data: [DONE]" + delimiter);
     return;
   }
   const obj = {
