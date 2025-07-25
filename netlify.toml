@@ -3,3 +3,21 @@
 
 [functions]
         node_bundler = "esbuild"
+
+[[edge_functions]]
+# 将所有 /gemini/ 开头的请求路由到 gemini 这个 Edge Function
+path = "/gemini/*"
+function = "gemini"
+
+# 如果你还需要 OpenAI 兼容层的路径，也需要为它们添加路由
+[[edge_functions]]
+path = "/v1/chat/completions"
+function = "gemini"
+
+[[edge_functions]]
+path = "/v1/embeddings"
+function = "gemini"
+
+[[edge_functions]]
+path = "/v1/models"
+function = "gemini"
