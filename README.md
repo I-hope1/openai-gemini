@@ -1,3 +1,5 @@
+Fork from [openai-gemini](https://github.com/PublicAffairs/openai-gemini)
+
 ## Why
 
 The Gemini API is [free](https://ai.google.dev/pricing "limits applied!"),
