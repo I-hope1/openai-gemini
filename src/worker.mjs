@@ -34,6 +34,7 @@ export default {
 						headers: request.headers,
 						body: request.body,
 						redirect: 'follow', // 允许跟随重定向
+						duplex: 'half',
 					});
 
 					// 发送请求到 Google API 并直接返回其响应
