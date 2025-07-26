@@ -22,71 +22,52 @@ export default {
 			switch (true) {
 				case pathname.startsWith("/gemini") || pathname.startsWith("/edge/gemini"):
 					// 获取 "/gemini" 后面的路径部分
-					let forwardPath;
+					let originalForwardPath;
 					if (pathname.startsWith("/edge/gemini")) {
-						forwardPath = pathname.substring("/edge/gemini".length);
+						originalForwardPath = pathname.substring("/edge/gemini".length);
 					} else if (pathname.startsWith("/gemini")) {
-						forwardPath = pathname.substring("/gemini".length);
+						originalForwardPath = pathname.substring("/gemini".length);
 					}
+
+					let modifiedForwardPath = originalForwardPath;
+					let enableCodeExecution = false;
+
+					// 检查 URL 路径中的模型名称是否包含 ":code" 后缀
+					// 示例: /v1beta/models/gemini-2.5-flash:code:generateContent
+					const modelPathRegex = /(models\/[^:]+):code(:[a-zA-Z]+)?/;
+					const match = originalForwardPath.match(modelPathRegex);
+
+					if (match) {
+						// 在路径中找到带有 :code 后缀的模型
+						modifiedForwardPath = originalForwardPath.replace(/:code/, ''); // 从路径中移除 :code
+						enableCodeExecution = true;
+					}
+
 					const { search } = new URL(request.url);
 					// 使用已定义的 BASE_URL 和原始请求的查询参数构建新的目标 URL
-					const newUrl = `${BASE_URL}${forwardPath}${search}`;
+					const newUrl = `${BASE_URL}${originalForwardPath}${search}`;
 
 					// 创建一个新的请求以进行转发，复制原始请求的方法、头部和主体
-					let newRequest;
-					if (request.method === "POST") {
-						// 读取原始请求体
-						const originalBody = await request.json();
-						let modifiedBody = { ...originalBody }; // 创建可变副本
-						let model = modifiedBody.model;
-						// 检查模型名称是否以 ":code" 结尾
-						if (typeof model === "string" && model.endsWith(":code")) {
-							modifiedBody.model = model.substring(0, model.length - 5); // 移除 ":code" 后缀
-							modifiedBody.tools = modifiedBody.tools || []; // 确保 tools 数组存在
+					const newRequest = new Request(newUrl, {
+						method: request.method,
+						headers: request.headers,
+						body: request.method === "POST" ? await (async () => {
+							const originalBody = await request.json();
+							let modifiedBody = { ...originalBody };
 
-							// 检查是否已存在 codeExecution 工具，避免重复添加
-							const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
-							if (!hasCodeExecutionTool) {
-								modifiedBody.tools.push({ codeExecution: {} });
+							if (enableCodeExecution) {
+								modifiedBody.tools = modifiedBody.tools || [];
+								// 检查是否已存在 codeExecution 工具，避免重复添加
+								const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
+								if (!hasCodeExecutionTool) {
+									modifiedBody.tools.push({ codeExecution: {} });
+								}
 							}
-
-							// 重新序列化修改后的请求体
-							const bodyToSend = JSON.stringify(modifiedBody);
-							const modifiedHeaders = new Headers(request.headers);
-							// 更新 Content-Length，因为请求体大小可能已改变
-							modifiedHeaders.set("Content-Length", new TextEncoder().encode(bodyToSend).byteLength.toString());
-							modifiedHeaders.set("Content-Type", "application/json"); // 确保 Content-Type 为 JSON
-							newRequest = new Request(newUrl, {
-								method: request.method,
-								headers: modifiedHeaders,
-								body: bodyToSend,
-								redirect: 'follow', // 允许跟随重定向
-								duplex: 'half',
-							});
-						} else {
-							// 如果没有修改，由于原始请求体已被读取，仍需重新创建请求
-							const originalBodyString = JSON.stringify(originalBody);
-							const originalHeaders = new Headers(request.headers);
-							originalHeaders.set("Content-Length", new TextEncoder().encode(originalBodyString).byteLength.toString());
-							originalHeaders.set("Content-Type", "application/json");
-							newRequest = new Request(newUrl, {
-								method: request.method,
-								headers: originalHeaders,
-								body: originalBodyString,
-								redirect: 'follow',
-								duplex: 'half',
-							});
-						}
-					} else {
-						// 对于非 POST 请求，直接使用原始请求信息
-						newRequest = new Request(newUrl, {
-							method: request.method,
-							headers: request.headers,
-							body: request.body,
-							redirect: 'follow', // 允许跟随重定向
-							duplex: 'half',
-						});
-					}
+							return JSON.stringify(modifiedBody);
+						})() : request.body, // 对于非 POST 请求，直接使用原始 body,
+						redirect: 'follow', // 允许跟随重定向
+						duplex: 'half',
+					});
 
 					// 发送请求到 Google API 并直接返回其响应
 					return fetch(newRequest);
