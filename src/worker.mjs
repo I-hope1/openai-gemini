@@ -45,7 +45,7 @@ export default {
 
 					const { search } = new URL(request.url);
 					// 使用已定义的 BASE_URL 和原始请求的查询参数构建新的目标 URL
-					const newUrl = `${BASE_URL}${originalForwardPath}${search}`;
+					const newUrl = `${BASE_URL}${modifiedForwardPath}${search}`;
 
 					// 创建一个新的请求以进行转发，复制原始请求的方法、头部和主体
 					const newRequest = new Request(newUrl, {
