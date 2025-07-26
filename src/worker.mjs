@@ -18,7 +18,7 @@ export default {
         }
       };
       const url = new URL(request.url);
-      const { pathname } = url;
+      let { pathname } = url;
 
 	  const isEdge = pathname.startsWith("/edge");
 	  if (isEdge) {
