@@ -51,18 +51,18 @@ export default {
 					const newRequest = new Request(newUrl, {
 						method: request.method,
 						headers: request.headers,
-						body: request.method === "POST" ? await (async () => {
+						body: request.method === "POST" && enableCodeExecution ? await (async () => {
+							// Todo 好像有问题 
 							const originalBody = await request.json();
 							let modifiedBody = { ...originalBody };
 
-							if (enableCodeExecution) {
-								modifiedBody.tools = modifiedBody.tools || [];
-								// 检查是否已存在 codeExecution 工具，避免重复添加
-								const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
-								if (!hasCodeExecutionTool) {
-									modifiedBody.tools.push({ codeExecution: {} });
-								}
+							modifiedBody.tools = modifiedBody.tools || [];
+							// 检查是否已存在 codeExecution 工具，避免重复添加
+							const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
+							if (!hasCodeExecutionTool) {
+								modifiedBody.tools.push({ codeExecution: {} });
 							}
+
 							return JSON.stringify(modifiedBody);
 						})() : request.body, // 对于非 POST 请求，直接使用原始 body,
 						redirect: 'follow', // 允许跟随重定向
