@@ -1,5 +1,33 @@
+//Author: PublicAffairs
+//Project: https://github.com/PublicAffairs/openai-gemini
+//MIT License : https://github.com/PublicAffairs/openai-gemini/blob/main/LICENSE
 
 import { Buffer } from "node:buffer";
+
+function createProxyResponse(upstreamResponse, body) {
+	const responseHeaders = new Headers(upstreamResponse.headers);
+
+	// 1. 清理 "Hop-by-Hop" 标头，这些标头只在服务器与代理之间有效
+	responseHeaders.delete('transfer-encoding');
+	responseHeaders.delete('connection');
+	responseHeaders.delete('keep-alive');
+
+	// 2. 如果我们已经处理了响应体（例如解压或转换），则必须删除此标头
+	// 在这个文件中，我们经常将JSON转换为OpenAI格式，所以删除是安全的
+	responseHeaders.delete('content-encoding');
+
+	// 3. 设置安全/隐私策略
+	responseHeaders.set('Referrer-Policy', 'no-referrer');
+
+	// 4. 添加通用的CORS标头
+	responseHeaders.set("Access-Control-Allow-Origin", "*");
+
+	return new Response(body, {
+		status: upstreamResponse.status,
+		statusText: upstreamResponse.statusText,
+		headers: responseHeaders,
+	});
+}
 
 export default {
 	async fetch(request) {
@@ -48,29 +76,39 @@ export default {
 					const newUrl = `${BASE_URL}${modifiedForwardPath}${search}`;
 
 					// 创建一个新的请求以进行转发，复制原始请求的方法、头部和主体
-					const newRequest = new Request(newUrl, {
-						method: request.method,
-						headers: request.headers,
-						body: request.method === "POST" && enableCodeExecution ? await (async () => {
-							// Todo 好像有问题 
+					let bodyPayload = request.body; // 默认直接透传原始 body (ReadableStream)
+
+					if (request.method === "POST" && enableCodeExecution) {
+						try {
 							const originalBody = await request.json();
-							let modifiedBody = { ...originalBody };
+							const modifiedBody = { ...originalBody };
 
 							modifiedBody.tools = modifiedBody.tools || [];
-							// 检查是否已存在 codeExecution 工具，避免重复添加
 							const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
 							if (!hasCodeExecutionTool) {
 								modifiedBody.tools.push({ codeExecution: {} });
 							}
 
-							return JSON.stringify(modifiedBody);
-						})() : request.body, // 对于非 POST 请求，直接使用原始 body,
-						redirect: 'follow', // 允许跟随重定向
+							bodyPayload = JSON.stringify(modifiedBody);
+						} catch (e) {
+							// 如果请求体不是有效的JSON，则返回错误
+							throw new HttpError("Invalid JSON in request body for code execution.", 400);
+						}
+					}
+
+					const newRequest = new Request(newUrl, {
+						method: request.method,
+						headers: request.headers,
+						body: bodyPayload,
+						redirect: 'follow',
 						duplex: 'half',
 					});
 
-					// 发送请求到 Google API 并直接返回其响应
-					return fetch(newRequest);
+					// 发送请求到 Google API
+					const upstreamResponse = await fetch(newRequest);
+
+					// 使用新的函数来创建和返回响应，确保头部被正确清理
+					return createProxyResponse(upstreamResponse, upstreamResponse.body);
 				case pathname.endsWith("/chat/completions"):
 					assert(request.method === "POST");
 					return handleCompletions(await request.json(), apiKey)
@@ -144,7 +182,7 @@ async function handleModels(apiKey) {
 			})),
 		}, null, "  ");
 	}
-	return new Response(body, fixCors(response));
+	return createProxyResponse(response, body);
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
@@ -188,7 +226,7 @@ async function handleEmbeddings(req, apiKey) {
 			model: req.model,
 		}, null, "  ");
 	}
-	return new Response(body, fixCors(response));
+	return createProxyResponse(response, body);	
 }
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
@@ -283,7 +321,7 @@ async function handleCompletions(req, apiKey) {
 			}
 		}
 	}
-	return new Response(body, fixCors(response));
+	return createProxyResponse(response, body);
 }
 
 const adjustProps = (schemaPart) => {
