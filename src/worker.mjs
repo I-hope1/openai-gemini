@@ -29,6 +29,37 @@ function createProxyResponse(upstreamResponse, body) {
 	});
 }
 
+/**
+ * 遍历请求体，查找并修复 function_call.args 从 string 到 object 的类型错误
+ * @param {object} body - 从客户端收到的已解析的 JSON 对象
+ * @returns {object} - 修复后的 JSON 对象
+ */
+function fixFunctionCallArgs(body) {
+	if (body && Array.isArray(body.contents)) {
+		for (const content of body.contents) {
+			if (content && Array.isArray(content.parts)) {
+				for (const part of content.parts) {
+					// 检查是否存在 function_call 并且其 args 是一个字符串
+					if (part && part.function_call && typeof part.function_call.args === 'string') {
+						try {
+							// 尝试将字符串解析为对象
+							const parsedArgs = JSON.parse(part.function_call.args);
+							// 如果解析成功，用对象替换原来的字符串
+							part.function_call.args = parsedArgs;
+							console.log("Fixed function_call.args from string to object."); // 添加日志方便调试
+						} catch (e) {
+							// 如果解析失败，说明它可能不是一个合法的 JSON 字符串
+							// 在这种情况下，我们选择保持原样，避免破坏请求
+							console.error("Failed to parse function_call.args, leaving it as is:", part.function_call.args);
+						}
+					}
+				}
+			}
+		}
+	}
+	return body;
+}
+
 export default {
 	async fetch(request) {
 		if (request.method === "OPTIONS") {
@@ -76,20 +107,25 @@ export default {
 					const newUrl = `${BASE_URL}${modifiedForwardPath}${search}`;
 
 					// 创建一个新的请求以进行转发，复制原始请求的方法、头部和主体
+					let newHeaders = new Headers(request.headers);
+					// 删除 content-length，让 fetch 自动重新计算
+					newHeaders.delete('content-length');
 					let bodyPayload = request.body; // 默认直接透传原始 body (ReadableStream)
 
 					if (request.method === "POST" && enableCodeExecution) {
 						try {
 							const originalBody = await request.json();
-							const modifiedBody = { ...originalBody };
+							const modifiedBody = fixFunctionCallArgs({ ...originalBody });
 
-							modifiedBody.tools = modifiedBody.tools || [];
+							modifiedBody.tools = modifiedBody.tools ?? [];
 							const hasCodeExecutionTool = modifiedBody.tools.some(tool => tool.codeExecution);
 							if (!hasCodeExecutionTool) {
 								modifiedBody.tools.push({ codeExecution: {} });
 							}
 
 							bodyPayload = JSON.stringify(modifiedBody);
+							// 如果修改了 body，最好明确设置 Content-Type
+							newHeaders.set('content-type', 'application/json');
 						} catch (e) {
 							// 如果请求体不是有效的JSON，则返回错误
 							throw new HttpError("Invalid JSON in request body for code execution.", 400);
@@ -98,7 +134,7 @@ export default {
 
 					const newRequest = new Request(newUrl, {
 						method: request.method,
-						headers: request.headers,
+						headers: newHeaders,
 						body: bodyPayload,
 						redirect: 'follow',
 						duplex: 'half',
@@ -226,7 +262,7 @@ async function handleEmbeddings(req, apiKey) {
 			model: req.model,
 		}, null, "  ");
 	}
-	return createProxyResponse(response, body);	
+	return createProxyResponse(response, body);
 }
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
