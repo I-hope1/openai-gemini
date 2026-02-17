@@ -4,6 +4,14 @@
 
 import { Buffer } from "node:buffer";
 
+const userAgents = [
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0'
+];
+
 function createProxyResponse(upstreamResponse, body) {
 	const responseHeaders = new Headers(upstreamResponse.headers);
 
@@ -110,6 +118,10 @@ export default {
 					let newHeaders = new Headers(request.headers);
 					// 删除 content-length，让 fetch 自动重新计算
 					newHeaders.delete('content-length');
+
+          // 随机选择一个User-Agent
+          const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+          newHeaders.set('user-agent', randomUserAgent);
 					let bodyPayload = request.body; // 默认直接透传原始 body (ReadableStream)
 
 					if (request.method === "POST" && enableCodeExecution) {
