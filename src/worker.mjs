@@ -85,7 +85,7 @@ export default {
 					throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
 				}
 			};
-			const { pathname } = new URL(request.url);
+			let { pathname } = new URL(request.url);
 			let base_url = BASE_URL;
 			switch (true) {
 				case pathname.startsWith("/xuanshu"):
