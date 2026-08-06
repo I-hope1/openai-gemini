@@ -86,7 +86,11 @@ export default {
 				}
 			};
 			const { pathname } = new URL(request.url);
+			let base_url = BASE_URL;
 			switch (true) {
+				case pathname.startsWith("/xuanshu"):
+					base_url = "https://www.xuanshuapi.com/";
+					pathname = pathname.substring("/xuanshu".length);
 				case pathname.startsWith("/gemini") || pathname.startsWith("/edge/gemini"):
 					// 获取 "/gemini" 后面的路径部分
 					let originalForwardPath;
@@ -111,17 +115,17 @@ export default {
 					}
 
 					const { search } = new URL(request.url);
-					// 使用已定义的 BASE_URL 和原始请求的查询参数构建新的目标 URL
-					const newUrl = `${BASE_URL}${modifiedForwardPath}${search}`;
+					// 使用已定义的 base_url 和原始请求的查询参数构建新的目标 URL
+					const newUrl = `${base_url}${modifiedForwardPath}${search}`;
 
 					// 创建一个新的请求以进行转发，复制原始请求的方法、头部和主体
 					let newHeaders = new Headers(request.headers);
 					// 删除 content-length，让 fetch 自动重新计算
 					newHeaders.delete('content-length');
-
-          // 随机选择一个User-Agent
-          const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-          newHeaders.set('user-agent', randomUserAgent);
+					
+					// 随机选择一个User-Agent
+					const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+					newHeaders.set('user-agent', randomUserAgent);
 					let bodyPayload = request.body; // 默认直接透传原始 body (ReadableStream)
 
 					if (request.method === "POST" && enableCodeExecution) {
